@@ -154,9 +154,10 @@ static bool I2S_InitDriver(void) {
 #endif
 }
 
-// --- High Priority Audio Task (Pinned to Core 0) ---
+// --- High Priority Audio Task (pinned to AUDIO_TASK_CORE, see Config.h) ---
 static void AudioTask(void* parameter) {
-    Serial.println("[AUDIO_TASK] Running full-bandwidth 48kHz real-time DSP on Core 0 (NO DECIMATION)");
+    Serial.printf("[AUDIO_TASK] Running full-bandwidth 48kHz real-time DSP on Core %d (NO DECIMATION)\n",
+                  AUDIO_TASK_CORE);
 
     int16_t rxDmaBuf[AUDIO_DMA_BUF_LEN * 2]; // Stereo 16-bit
     int16_t txDmaBuf[AUDIO_DMA_BUF_LEN * 2]; // Stereo 16-bit
@@ -316,9 +317,9 @@ void AudioPipeline_Start(void) {
             "AudioTask",
             8192,
             NULL,
-            5, // High priority
+            5, // High priority (above the Arduino loop task on the same core)
             &g_AudioTaskHandle,
-            0  // Pinned to Core 0
+            AUDIO_TASK_CORE
         );
     }
 }

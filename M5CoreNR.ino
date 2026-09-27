@@ -13,6 +13,28 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <esp_bt.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
+
+// Survives a panic / watchdog reboot (RTC slow memory), so the cause of the PREVIOUS reset
+// can be read at the next boot. A lost or nonsense value points at a power/brownout event.
+static RTC_NOINIT_ATTR uint32_t g_PrevResetReason;
+
+static const char* ResetReasonName(uint32_t r) {
+    switch (r) {
+        case ESP_RST_POWERON:   return "POWERON";
+        case ESP_RST_EXT:       return "EXT_PIN";
+        case ESP_RST_SW:        return "SW";
+        case ESP_RST_PANIC:     return "PANIC (exception/abort)";
+        case ESP_RST_INT_WDT:   return "INT_WDT";
+        case ESP_RST_TASK_WDT:  return "TASK_WDT";
+        case ESP_RST_WDT:       return "WDT";
+        case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+        case ESP_RST_BROWNOUT:  return "BROWNOUT (supply sag)";
+        case ESP_RST_SDIO:      return "SDIO";
+        default:                return "UNKNOWN";
+    }
+}
 
 void setup() {
     // Radio policy: WiFi is NEVER initialised in this firmware, so the WiFi radio never
@@ -47,6 +69,15 @@ void setup() {
     Serial.println("   DNR + Exciter + Dolby B/C + DBX Tape Decoders");
     Serial.println("   Bluetooth A2DP RX (sink) + TX (source)");
     Serial.println("==============================================\n");
+
+    const uint32_t prevReason = g_PrevResetReason;
+    g_PrevResetReason = (uint32_t)esp_reset_reason();
+    Serial.printf("[SYS] This boot: %s (%u) | previous boot ended with: %s (%lu)\n",
+                  ResetReasonName(g_PrevResetReason), (unsigned)g_PrevResetReason,
+                  ResetReasonName(prevReason), (unsigned long)prevReason);
+    Serial.printf("[SYS] Free heap at boot: internal %u, PSRAM %u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
     // 2. Power Management (Disable internal speaker amp to eliminate noise)
     switch (M5.Power.getType()) {

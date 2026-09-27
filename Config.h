@@ -30,6 +30,14 @@
 // Latency in milliseconds: (512 / 48000) * 1000 = 10.6 ms
 #define AUDIO_ROUNDTRIP_LATENCY_MS  (((float)AUDIO_DMA_BUF_LEN / SAMPLING_FREQ) * 1000.0f)
 
+// Core assignment for the real-time audio task.
+// The ESP32 Bluetooth controller and Bluedroid host tasks are pinned to Core 0, so with
+// Bluetooth active, Core 0 must not also carry the DSP: doing so oversubscribes the core,
+// starves IDLE0 and the task watchdog aborts (seen as "task_wdt: - IDLE0 (CPU 0)").
+// Core 1 only runs the low priority Arduino loop task (the UI), so audio there is the
+// highest priority task on that core and its deadline jitter is minimal.
+#define AUDIO_TASK_CORE         1
+
 // --- Volume & Gain Settings ---
 #define DEFAULT_HEADPHONE_VOL   90        // 90% = 0 dB (100% untouched 1:1 unity passthrough)
 #define VOLUME_STEP             5         // Step per button press
@@ -94,6 +102,10 @@
 #define BT_SERVO_KP             0.0006f // Ratio trim per % of fill error
 #define BT_SERVO_MAX_TRIM       0.010f  // +/- 1 % ratio authority (~10000 ppm)
 #define BT_FADE_MS              15      // De-click ramp length on link start/stop
+
+// Emit a link/health line every 5 s while connected (ring fill, xruns, free heap).
+// Set to 0 once bring-up is complete.
+#define BT_LOG_STATS            1
 
 // Headphone volume mirroring onto the BT TX stream.
 // The ES8388 DAC volume law is steps = (V * 33 + 50) / 100, clamped to 33.

@@ -25,6 +25,7 @@
 #include "Config.h"
 #include "BTAudio.h"
 #include "AudioPipeline.h"
+#include "DSP_Engine.h"
 
 #include <Arduino.h>
 #include <string.h>
@@ -164,7 +165,8 @@ public:
         if (!m_primed) {
             if (srcFrames == 0) { if (srcUsed) *srcUsed = 0; return 0; }
             // Prime with the first input frame: no click, just one sample of delay.
-            for (int i = 0; i < 4; i++) { m_h[i][0] = src[0]; m_h[i][1] = src[1]; }
+            const int16_t r = (srcFrames > 1) ? src[1] : src[0];
+            for (int i = 0; i < 4; i++) { m_h[i][0] = src[0]; m_h[i][1] = r; }
             m_pos    = 1.0f;
             m_primed = true;
         }
@@ -392,6 +394,18 @@ static void BTAudio_OnSinkPcm(const uint8_t* data, uint32_t len) {
     const int16_t* pcm    = (const int16_t*)data;
     const size_t   frames = len / (sizeof(int16_t) * ch);
     if (frames == 0) return;
+
+    // One-shot bring-up diagnostics: proves audio is really arriving, and records the
+    // format and the heap available at that moment.
+    static bool s_FirstPacketLogged = false;
+    if (!s_FirstPacketLogged) {
+        s_FirstPacketLogged = true;
+        Serial.printf("[BT] First PCM packet: %u bytes, %u Hz, %u ch, L=%d R=%d\n",
+                      (unsigned)len, (unsigned)g_SinkRate, (unsigned)ch, pcm[0], pcm[1]);
+        Serial.printf("[BT] Heap: internal %u free, PSRAM %u free\n",
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    }
 
     if (ch == 2) {
         g_RxRing.Write(pcm, frames);
@@ -678,6 +692,22 @@ void BTAudio_Update(void) {
     }
 
     LogStateChange();
+
+#if BT_LOG_STATS
+    // Periodic link/health line, helpful while bringing a source up and for spotting
+    // slow leaks. Set BT_LOG_STATS 0 in Config.h to silence it.
+    static uint32_t s_LastStats = 0;
+    if (connected && (uint32_t)(now - s_LastStats) > 5000) {
+        s_LastStats = now;
+        Serial.printf("[BT] %s: ring %3.0f%%  xrun %lu  DSP %2.0f%%  intern %u  psram %u\n",
+                      (g_Mode == BT_MODE_RX) ? "RX" : "TX",
+                      (double)((g_Mode == BT_MODE_RX) ? g_RxRing.FillPct() : g_TxRing.FillPct()),
+                      (unsigned long)(g_RxRing.xrun + g_TxRing.xrun),
+                      (double)DSP_Engine_GetCPULoad(),
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    }
+#endif
 #endif
 }
 
