@@ -56,9 +56,10 @@
 // BT RX = A2DP Sink  : a phone/laptop streams INTO the DSP chain, replacing Line In.
 // BT TX = A2DP Source: the same post-DSP audio that feeds the headphones is also
 //                      SBC encoded and streamed to a Bluetooth speaker/headphone.
-// Requires the "ESP32-A2DP" library (pschatzmann, Apache-2.0). When it is not
-// installed the firmware still builds and compiles the BT page out to a stub that
-// reports "BT LIB MISSING" on screen.
+// Requires the "ESP32-A2DP" library (pschatzmann, Apache-2.0):
+//   https://github.com/pschatzmann/ESP32-A2DP
+// Set BT_ENABLE to 0 if the library is not installed - the firmware then builds
+// without Bluetooth and the BT page reports "BT LIB MISSING".
 #define BT_ENABLE               1
 #define BT_SINK_NAME            "M5CoreNR"  // Advertised name in BT RX mode
 // BT TX targets: comma separated A2DP sink names, first reachable device wins.
@@ -66,6 +67,8 @@
 #define BT_SOURCE_PEERS         "M5CoreNR-BT,M5 Speaker"
 #define BT_SOURCE_MAX_PEERS     4
 #define BT_SOURCE_NAME_LEN      32
+// A2DP source stream rate: the ESP32-A2DP source sends 44.1 kHz stereo SBC.
+#define BT_SOURCE_RATE          44100.0f
 
 // Stereo PCM ring buffers (allocated in PSRAM; both sizes must be powers of two)
 #define BT_RX_RING_FRAMES       16384   // ~371 ms @ 44.1 kHz (BT task -> audio task)

@@ -82,15 +82,30 @@ The third touch screen adds Bluetooth audio without touching the wired signal pa
 
 ### Library requirement
 
-Bluetooth needs the **ESP32-A2DP** library (pschatzmann, Apache-2.0):
+Bluetooth needs the **ESP32-A2DP** library (pschatzmann, Apache-2.0). It is not published in
+the Arduino Library Manager registry, so install it from GitHub:
 
 ```text
-Arduino IDE -> Tools -> Manage Libraries... -> search "ESP32-A2DP" -> Install
+git clone https://github.com/pschatzmann/ESP32-A2DP.git %USERPROFILE%\Documents\Arduino\libraries\ESP32-A2DP
 ```
 
-The firmware also builds **without** it: the A2DP code is compiled out and the Bluetooth
-page reports `BT LIB MISSING` instead of failing the build. `arduino-audio-tools` is not
-required.
+Alternatively download the repository ZIP and use *Sketch -> Include Library -> Add .ZIP
+Library...*. `arduino-audio-tools` is not required.
+
+Set `BT_ENABLE 0` in `Config.h` to build without Bluetooth: the A2DP code is compiled out and
+the Bluetooth page reports `BT LIB MISSING`.
+
+Verified with arduino-cli 1.5.1 + esp32 core 3.3.3 for `esp32:esp32:m5stack_core2` -
+`BT_ENABLE 1` uses 1,349,179 bytes of flash (20%), `BT_ENABLE 0` uses 576,363 bytes (8%).
+
+### Why the WiFi library is not linked
+
+`WiFi.mode(WIFI_OFF)` was removed from `setup()`. Merely referencing the WiFi library pulls in
+its IRAM-optimised code, and on the ESP32 the link then fails with
+`region iram0_0_seg overflowed by 92 bytes` because the Bluetooth stack also lives in IRAM.
+WiFi is never initialised anywhere in this firmware, so the WiFi radio still never transmits
+and the wired noise floor is unchanged. If you later add WiFi features, expect to have to
+trade Bluetooth back out (or move to a chip with more IRAM).
 
 ### How it is wired into the audio engine
 

@@ -12,15 +12,17 @@
 #include "BTAudio.h"
 #include <Arduino.h>
 #include <M5Unified.h>
-#include <WiFi.h>
 #include <esp_bt.h>
 
 void setup() {
-    // Disable WiFi immediately to stop RF interference.
-    // Bluetooth is deliberately NOT started here: BTAudio keeps the radio off until the
-    // user selects BT RX or BT TX on the third screen, so the default boot state stays
-    // as RF quiet as a purely wired device.
-    WiFi.mode(WIFI_OFF);
+    // Radio policy: WiFi is NEVER initialised in this firmware, so the WiFi radio never
+    // transmits and no WiFi/BT coexistence is engaged - the wired noise floor stays clean
+    // by construction. (Calling WiFi.mode(WIFI_OFF) would pull the WiFi library into the
+    // build and its IRAM optimised code no longer fits alongside the Bluetooth stack on the
+    // ESP32, which fails the link with an iram0_0_seg overflow.)
+    //
+    // Bluetooth is also not started here: BTAudio keeps the radio off until the user selects
+    // BT RX or BT TX on the third screen, so the default boot state is RF quiet.
 
     // 1. Initialize M5Unified hardware abstraction
     auto cfg = M5.config();

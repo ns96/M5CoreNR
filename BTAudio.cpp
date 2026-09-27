@@ -4,7 +4,7 @@
  *
  * Threading model
  * ---------------
- *   Core 1 (loop())      : BTAudio_Start*/Stop/Update, BTAudio_SetTxGain
+ *   Core 1 (loop())      : BTAudio_Start/Stop/Update, BTAudio_SetTxGain
  *   Core 0 (AudioTask)   : BTAudio_PopTo48k(), BTAudio_PushFrom48k()
  *   BT stack tasks       : A2DP sink data callback, A2DP source data callback
  *
@@ -32,7 +32,14 @@
 #include <esp_heap_caps.h>
 #include <esp_bt.h>
 
-#if BT_ENABLE && __has_include("BluetoothA2DPSink.h") && __has_include("BluetoothA2DPSource.h")
+// Arduino's library auto-detection only sees #include directives that the
+// preprocessor actually emits, so the A2DP headers must be included for real
+// (never inside a false __has_include() branch, which would deadlock detection).
+// Without the library, build with BT_ENABLE 0 in Config.h.
+#if BT_ENABLE
+  #if !__has_include("BluetoothA2DPSink.h") || !__has_include("BluetoothA2DPSource.h")
+    #error "ESP32-A2DP library not found. Install it (https://github.com/pschatzmann/ESP32-A2DP) or set BT_ENABLE 0 in Config.h."
+  #endif
   #include "BluetoothA2DPSink.h"
   #include "BluetoothA2DPSource.h"
   #include <vector>
