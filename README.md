@@ -153,6 +153,7 @@ pairing session from a PC.
 | `BT_RX_RING_FRAMES` / `BT_TX_RING_FRAMES` | Ring depths (powers of two, allocated in PSRAM) |
 | `BT_RING_TARGET_PCT` / `BT_RING_MIN_PCT` / `BT_RING_MAX_PCT` | Servo set point and fade limits |
 | `BT_SERVO_KP` / `BT_SERVO_MAX_TRIM` | Drift servo gain and authority (±1 %) |
+| `BT_TX_ACCEPT_FIRST` | BT TX: connect to the first audio device discovered when no configured name matches |
 | `BT_TX_MIRROR_VOLUME` / `BT_VOL_DB_PER_STEP` | Headphone volume mirroring |
 | `BT_RX_SOURCE_VOLUME` | AVRCP volume advertised to a device connecting in BT RX mode (127 = full scale) |
 
@@ -176,11 +177,37 @@ logged as `[BT] Source volume: N%`.
    bit-exact one. BYPASS remains bit-perfect on the wired headphone path only.
 3. **Latency** - A2DP adds roughly 150-250 ms on top of the ring buffer depth, so the wired
    headphone output leads the Bluetooth output. Irrelevant for separate listeners.
-4. **BT TX targets are configured, not scanned** - set `BT_SOURCE_PEERS` in `Config.h`. An
-   on-screen device picker is a possible follow-up.
+4. **BT TX chooses its target by name** - an A2DP source cannot browse devices and connects by
+   matching the speaker's advertised name. `BTAudio` logs every device it discovers
+   (`[BT] Found device: "..." RSSI .. dBm`), matches the prefixes in `BT_SOURCE_PEERS`, and -
+   when nothing matches and `BT_TX_ACCEPT_FIRST` is 1 - connects to the first audio capable
+   device found. Listing the real name is the reliable option, because accept-first will also
+   latch onto any other audio device in range (for example a laptop). The inquiry is re-armed
+   every 12 s while nothing is connected, which the library does not do by itself.
 5. **Radio noise** - enabling Bluetooth wakes a 2.4 GHz transmitter inside the case. The radio
    is only powered when BT RX or BT TX is selected, and BT OFF disables the controller again,
    so the wired-only noise floor is unchanged.
+
+### Verified on hardware (M5Stack Core2, esp32 core 3.3.3)
+
+| Path | Result |
+| :--- | :--- |
+| BT RX, PC streaming | Ring held 32-37 % against the 35 % servo target, `xrun 0`, DSP 25-32 %, no watchdog abort over 150 s |
+| BT TX, Bluetooth speaker | Ring held 29-38 %, `xrun 0`, ~1740 pulls per 5 s (44.1 kHz), DSP 33-35 % |
+| Simultaneous BT TX + wired headphones | Headphone output keeps running while the speaker streams the same processed audio |
+| AVRCP volume | Sources connect at full scale instead of being muted |
+
+Known source-side edge case: one source (a QFX RETRO-1980 boombox) completes the AVDTP start
+handshake (`a2dp STARTED`) but then transmits **zero** media packets, which the health line shows
+as `pkts 0/5s NO-AUDIO` while the panel reads `CONNECTED (NO AUDIO)`. Nothing is wrong on the
+M5 side in that case - the peer never sends audio.
+
+### Diagnostic logging
+
+While `BT_LOG_STATS` is 1 (default) a health line is printed every 5 s for the active direction:
+`ring` fill, `xrun` count, packet or pull rate, A2DP stream state, DSP load and free heap. Set it
+to 0 for a quiet log. The boot banner also reports the reset reason of the previous boot, and
+`[BT]` lines trace connections, peer names, source volume requests and link loss.
 
 ---
 
