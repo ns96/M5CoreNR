@@ -498,17 +498,20 @@ void AudioPipeline_UpdateLEDs(void) {
         }
 
         // LED 0 doubles as the Bluetooth radio indicator once BT is selected:
-        // slow blink = stream linked, fast blink = pairing / searching.
+        //   fast blink = no peer yet, steady = paired/connected, slow blink = audio flowing.
         // LED 1 and LED 2 keep showing the active DSP mode.
         BtAudioMode btMode = BTAudio_GetMode();
         if (btMode != BT_MODE_OFF) {
-            const bool linked = BTAudio_IsLinked();
-            const uint32_t btPeriod = linked ? 900 : 220;
-            const bool btOn = ((now / btPeriod) & 1) == 0;
-            if (btMode == BT_MODE_RX) {
-                col0 = btOn ? 0x006688 : 0x001122; // Cyan/blue = receiving from Bluetooth
+            const bool rxLink = (btMode == BT_MODE_RX);
+            const uint16_t btOn  = rxLink ? 0x006688 : 0x440088; // cyan/blue RX, purple TX
+            const uint16_t btOff = rxLink ? 0x001122 : 0x110022;
+            const int btLevel = BTAudio_GetLinkLevel();
+            if (btLevel == 1) {
+                col0 = btOn;                                            // paired: steady
+            } else if (btLevel == 2) {
+                col0 = ((now / 900) & 1) == 0 ? btOn : btOff;           // streaming: slow blink
             } else {
-                col0 = btOn ? 0x440088 : 0x110022; // Purple = transmitting over Bluetooth
+                col0 = ((now / 200) & 1) == 0 ? btOn : btOff;           // searching: fast blink
             }
         }
     }

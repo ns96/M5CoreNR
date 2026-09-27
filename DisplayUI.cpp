@@ -114,13 +114,17 @@ static void DrawHeader(void) {
     g_Canvas.drawString("M5-CoreNR", 8, 12);
 
     // Bluetooth radio badge: always visible, also from the DSP pages
+    //   red = library missing, amber = paired but idle, green = audio flowing,
+    //   cyan = advertising as a sink, cobalt = searching for a speaker.
     BtAudioState btState = BTAudio_GetState();
+    BtAudioMode  btBadgeMode = BTAudio_GetMode();
+    const int btBadgeLevel = BTAudio_GetLinkLevel();
     uint16_t btBadgeColor = COLOR_TEXT_MUTED;
-    if (btState == BT_STATE_NO_LIB)              btBadgeColor = COLOR_RED;
-    else if (btState == BT_STATE_RX_STREAMING)   btBadgeColor = COLOR_GREEN;
-    else if (btState == BT_STATE_RX_STARTING)    btBadgeColor = COLOR_CYAN;
-    else if (btState == BT_STATE_TX_STREAMING)   btBadgeColor = COLOR_MAGENTA;
-    else if (btState == BT_STATE_TX_SEARCHING)   btBadgeColor = 0x541F;
+    if (btState == BT_STATE_NO_LIB)       btBadgeColor = COLOR_RED;
+    else if (btBadgeLevel == 2)           btBadgeColor = COLOR_GREEN;
+    else if (btBadgeLevel == 1)           btBadgeColor = COLOR_AMBER;
+    else if (btBadgeMode == BT_MODE_RX)   btBadgeColor = COLOR_CYAN;
+    else if (btBadgeMode == BT_MODE_TX)   btBadgeColor = 0x541F;
     g_Canvas.setTextColor(btBadgeColor, COLOR_HEADER_BG);
     g_Canvas.drawString(BTAudio_GetBadgeText(), 64, 12);
 
@@ -330,9 +334,11 @@ static void DrawStatusPanel(void) {
     if (g_UiPage == 2) {
         snprintf(exciterBuf, sizeof(exciterBuf), "%s", BTAudio_GetStatusText());
         BtAudioState btState = BTAudio_GetState();
+        const int btLevel = BTAudio_GetLinkLevel();
         uint16_t btTextColor = COLOR_TEXT_MUTED;
         if (btState == BT_STATE_NO_LIB)        btTextColor = COLOR_RED;
-        else if (BTAudio_IsLinked())           btTextColor = COLOR_GREEN;
+        else if (btLevel == 2)                 btTextColor = COLOR_GREEN;
+        else if (btLevel == 1)                 btTextColor = COLOR_AMBER;
         else if (btState != BT_STATE_OFF)      btTextColor = COLOR_CYAN;
         g_Canvas.setTextColor(btTextColor, COLOR_PANEL_BG);
     } else if (mode == MODE_EXCITER) {
@@ -361,7 +367,6 @@ static void DrawStatusPanel(void) {
 static void DrawModeButtons(void) {
     ProcessingMode currentMode = DSP_Engine_GetMode();
     BtAudioMode btMode = BTAudio_GetMode();
-    BtAudioState btState = BTAudio_GetState();
 
     const char* titles_p0[BTN_COUNT] = { "BYPASS", "DE-HISS", "EXCITER", "NEXT >" };
     const char* subTitles_p0[BTN_COUNT] = { "(Raw Tape)", "(3-Band LR4)", "(Air/Spark)", "(Tape NR)" };
@@ -372,10 +377,11 @@ static void DrawModeButtons(void) {
     const char* titles_p2[BTN_COUNT] = { "BT RX", "BT TX", "BT OFF", "< BACK" };
 
     // The Bluetooth page subtitles are live status text, so they are built per frame.
+    const int btLevel = BTAudio_GetLinkLevel();
     char btSub0[14], btSub1[14], btSub2[14];
-    if (btMode == BT_MODE_RX)  snprintf(btSub0, sizeof(btSub0), "%s", (btState == BT_STATE_RX_STREAMING) ? "LINKED" : "PAIRING");
+    if (btMode == BT_MODE_RX)  snprintf(btSub0, sizeof(btSub0), "%s", (btLevel == 2) ? "LINKED" : (btLevel == 1) ? "CONNECTED" : "PAIRING");
     else                       snprintf(btSub0, sizeof(btSub0), "(Receive)");
-    if (btMode == BT_MODE_TX)  snprintf(btSub1, sizeof(btSub1), "%s", (btState == BT_STATE_TX_STREAMING) ? "STREAMING" : "SEARCHING");
+    if (btMode == BT_MODE_TX)  snprintf(btSub1, sizeof(btSub1), "%s", (btLevel == 2) ? "STREAMING" : (btLevel == 1) ? "CONNECTED" : "SEARCHING");
     else                       snprintf(btSub1, sizeof(btSub1), "(To Speaker)");
     if (btMode == BT_MODE_OFF) snprintf(btSub2, sizeof(btSub2), "(Radio Off)");
     else                       snprintf(btSub2, sizeof(btSub2), "(Turn Off)");

@@ -126,6 +126,23 @@ trade Bluetooth back out (or move to a chip with more IRAM).
   why the TX DMA preload cushion and the ring levels matter. If BT TX plus EXCITER approaches
   the CPU limit shown in the header, the ring buffer absorbs the scheduling jitter.
 
+### Knowing whether it is actually paired
+
+Radio, link and audio are three different things, and the UI reports all three:
+
+| Link | Header badge | Page 3 status line | RX/TX button | LED 0 |
+| :--- | :--- | :--- | :--- | :--- |
+| Not connected (advertising / searching) | `BT:RX` cyan, `BT:TX` cobalt | `BT RX: PAIR "M5CoreNR" ON YOUR PHONE` | `PAIRING` / `SEARCHING` | fast blink |
+| **Paired / connected, no audio** | **amber** | `BT RX: <phone> CONNECTED (IDLE)` | `CONNECTED` | **steady** |
+| Audio flowing | green | `BT RX: <phone>  RING 42%  XRUN 0` | `LINKED` / `STREAMING` | slow blink |
+| Library missing | `BT:!!` red | `BT LIB MISSING - INSTALL ESP32-A2DP` | `PAIRING` | - |
+
+`CONNECTED (IDLE)` is the state that answers "did pairing work?": it comes from the A2DP link
+state itself, so it shows up even when the phone is paused. The peer name and the
+`RING`/`XRUN` figures need an active stream. The serial log prints one line per transition
+(`A2DP sink CONNECTED`, `streaming`, `link lost`), which is the easiest way to watch a
+pairing session from a PC.
+
 ### Configuration (`Config.h`)
 
 | Define | Purpose |

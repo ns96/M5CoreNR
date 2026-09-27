@@ -577,33 +577,82 @@ void BTAudio_Stop(void) {
     Serial.println("[BT] Off (radio disabled, Line In restored).");
 }
 
+#if BT_LIB_PRESENT
+// Refresh the peer name from the A2DP sink at most once per second.
+static void PollPeerName(uint32_t now) {
+    if ((uint32_t)(now - g_PeerPollMs) <= 1000) return;
+    g_PeerPollMs = now;
+    if (!g_Sink) return;
+    const char* name = g_Sink->get_peer_name();
+    if (name && name[0] && strcmp(name, g_PeerName) != 0) {
+        strncpy(g_PeerName, name, sizeof(g_PeerName) - 1);
+        g_PeerName[sizeof(g_PeerName) - 1] = 0;
+        Serial.printf("[BT] Peer: %s\n", g_PeerName);
+    }
+}
+
+// Print one line per link state transition, so the serial monitor tells the story.
+static void LogStateChange(void) {
+    static BtAudioState last = BT_STATE_OFF;
+    if (g_State == last) return;
+
+    switch (g_State) {
+        case BT_STATE_RX_CONNECTED:
+            Serial.println("[BT] A2DP sink CONNECTED - press play on the phone.");
+            break;
+        case BT_STATE_RX_STREAMING:
+            Serial.println("[BT] A2DP sink streaming.");
+            break;
+        case BT_STATE_RX_STARTING:
+            if (last == BT_STATE_RX_CONNECTED || last == BT_STATE_RX_STREAMING) {
+                Serial.println("[BT] A2DP sink link lost - advertising again.");
+            }
+            break;
+        case BT_STATE_TX_CONNECTED:
+            Serial.println("[BT] A2DP source CONNECTED - waiting for audio.");
+            break;
+        case BT_STATE_TX_STREAMING:
+            Serial.println("[BT] A2DP source streaming.");
+            break;
+        case BT_STATE_TX_SEARCHING:
+            if (last == BT_STATE_TX_CONNECTED || last == BT_STATE_TX_STREAMING) {
+                Serial.println("[BT] A2DP source link lost - searching again.");
+            }
+            break;
+        default:
+            break;
+    }
+    last = g_State;
+}
+#endif  // BT_LIB_PRESENT
+
 void BTAudio_Update(void) {
     if (!g_Inited) { return; }
 
 #if BT_LIB_PRESENT
     const uint32_t now = millis();
 
+    // A2DP link state straight from the library (paired/connected, independent of audio)
+    bool connected = false;
+    if (g_Mode == BT_MODE_RX && g_Sink)        connected = g_Sink->is_connected();
+    else if (g_Mode == BT_MODE_TX && g_Source) connected = g_Source->is_connected();
+
     switch (g_Mode) {
-        case BT_MODE_RX:
-            if (g_LastRxDataMs && (uint32_t)(now - g_LastRxDataMs) < 1500) {
-                g_State = BT_STATE_RX_STREAMING;
-                if ((uint32_t)(now - g_PeerPollMs) > 1000) {
-                    g_PeerPollMs = now;
-                    const char* name = g_Sink ? g_Sink->get_peer_name() : nullptr;
-                    if (name && name[0]) {
-                        strncpy(g_PeerName, name, sizeof(g_PeerName) - 1);
-                        g_PeerName[sizeof(g_PeerName) - 1] = 0;
-                    }
-                }
-            } else {
-                g_State = BT_STATE_RX_STARTING;
-            }
+        case BT_MODE_RX: {
+            const bool streaming = g_LastRxDataMs && (uint32_t)(now - g_LastRxDataMs) < 1500;
+            g_State = streaming ? BT_STATE_RX_STREAMING
+                    : connected ? BT_STATE_RX_CONNECTED
+                                : BT_STATE_RX_STARTING;
+            if (connected) PollPeerName(now);
             break;
+        }
 
         case BT_MODE_TX: {
             const bool pulling = g_LastTxPullMs && (uint32_t)(now - g_LastTxPullMs) < 3000;
-            const bool linked  = g_Source && g_Source->is_active(6000);
-            g_State = (pulling && linked) ? BT_STATE_TX_STREAMING : BT_STATE_TX_SEARCHING;
+            const bool alive   = g_Source && g_Source->is_active(6000);
+            g_State = (pulling && alive) ? BT_STATE_TX_STREAMING
+                    : connected          ? BT_STATE_TX_CONNECTED
+                                         : BT_STATE_TX_SEARCHING;
             break;
         }
 
@@ -611,6 +660,8 @@ void BTAudio_Update(void) {
             g_State = BT_STATE_OFF;
             break;
     }
+
+    LogStateChange();
 #endif
 }
 
@@ -625,6 +676,16 @@ BtAudioState BTAudio_GetState(void) { return g_State; }
 
 bool BTAudio_IsLinked(void) {
     return (g_State == BT_STATE_RX_STREAMING) || (g_State == BT_STATE_TX_STREAMING);
+}
+
+int BTAudio_GetLinkLevel(void) {
+    switch (g_State) {
+        case BT_STATE_RX_STREAMING:
+        case BT_STATE_TX_STREAMING: return 2;   // audio flowing
+        case BT_STATE_RX_CONNECTED:
+        case BT_STATE_TX_CONNECTED: return 1;   // paired, no audio yet
+        default:                    return 0;   // not connected
+    }
 }
 
 const char* BTAudio_GetBadgeText(void) {
@@ -644,6 +705,9 @@ const char* BTAudio_GetStatusText(void) {
         case BT_STATE_RX_STARTING:
             snprintf(g_Status, sizeof(g_Status), "BT RX: PAIR \"%s\" ON YOUR PHONE", BT_SINK_NAME);
             break;
+        case BT_STATE_RX_CONNECTED:
+            snprintf(g_Status, sizeof(g_Status), "BT RX: %s CONNECTED (IDLE)", ShortPeer(g_PeerName, 12));
+            break;
         case BT_STATE_RX_STREAMING:
             snprintf(g_Status, sizeof(g_Status), "BT RX: %s  RING %3.0f%%  XRUN %lu",
                      ShortPeer(g_PeerName, 12), (double)g_RxRing.FillPct(),
@@ -651,6 +715,9 @@ const char* BTAudio_GetStatusText(void) {
             break;
         case BT_STATE_TX_SEARCHING:
             snprintf(g_Status, sizeof(g_Status), "BT TX: SEARCHING \"%s\"", ShortPeer(g_PeerName, 18));
+            break;
+        case BT_STATE_TX_CONNECTED:
+            snprintf(g_Status, sizeof(g_Status), "BT TX: %s CONNECTED (IDLE)", ShortPeer(g_PeerName, 12));
             break;
         case BT_STATE_TX_STREAMING:
             snprintf(g_Status, sizeof(g_Status), "BT TX: %s  RING %3.0f%%  XRUN %lu",

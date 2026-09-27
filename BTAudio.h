@@ -43,8 +43,10 @@ typedef enum {
     BT_STATE_OFF = 0,        // Radio disabled, RF quiet (default boot state)
     BT_STATE_NO_LIB,         // ESP32-A2DP library not installed
     BT_STATE_RX_STARTING,    // Advertising, waiting for a source to connect
+    BT_STATE_RX_CONNECTED,   // Source paired/linked, no audio flowing yet
     BT_STATE_RX_STREAMING,   // Audio is arriving from the phone
     BT_STATE_TX_SEARCHING,   // Looking for one of the configured peer names
+    BT_STATE_TX_CONNECTED,   // Peer link established, not streaming yet
     BT_STATE_TX_STREAMING    // Streaming to the peer
 } BtAudioState;
 
@@ -62,6 +64,9 @@ void BTAudio_SetTxGain(float linear);
 BtAudioMode  BTAudio_GetMode(void);
 BtAudioState BTAudio_GetState(void);
 bool         BTAudio_IsLinked(void);       // true while audio is actually flowing
+// Link progress, used for the badge colour, the status line and LED 0:
+//   0 = radio on but no peer yet, 1 = peer connected, 2 = audio flowing
+int          BTAudio_GetLinkLevel(void);
 const char*  BTAudio_GetBadgeText(void);   // 5 char header tag: "BT:--","BT:RX","BT:TX"
 const char*  BTAudio_GetStatusText(void);  // One status panel line
 const char*  BTAudio_GetPeerName(void);    // "" when unknown
