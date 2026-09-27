@@ -192,7 +192,7 @@ logged as `[BT] Source volume: N%`.
 
 | Path | Result |
 | :--- | :--- |
-| BT RX, PC streaming | Ring held 32-37 % against the 35 % servo target, `xrun 0`, DSP 25-32 %, no watchdog abort over 150 s |
+| BT RX, PC and phone streaming | Two independent sources, 130-150 s each: ring held 30-37 % against the 35 % servo target, `xrun 0`, ~250 packets per 5 s, DSP 25-34 %, no watchdog abort |
 | BT TX, Bluetooth speaker | Ring held 29-38 %, `xrun 0`, ~1740 pulls per 5 s (44.1 kHz), DSP 33-35 % |
 | Simultaneous BT TX + wired headphones | Headphone output keeps running while the speaker streams the same processed audio |
 | AVRCP volume | Sources connect at full scale instead of being muted |
@@ -200,7 +200,12 @@ logged as `[BT] Source volume: N%`.
 Known source-side edge case: one source (a QFX RETRO-1980 boombox) completes the AVDTP start
 handshake (`a2dp STARTED`) but then transmits **zero** media packets, which the health line shows
 as `pkts 0/5s NO-AUDIO` while the panel reads `CONNECTED (NO AUDIO)`. Nothing is wrong on the
-M5 side in that case - the peer never sends audio.
+M5 side in that case - the peer never sends audio. Its manual explains why the deck is a special
+case: Bluetooth **transmit** is a separate switch position and only works **in TAPE playback mode**
+(green LED = transmitting, blue = receiving as a speaker), and the deck re-connects to its
+remembered sink. So it has to be unpaired from that speaker, in TAPE with a cassette playing, and
+switched to TX before it will stream to the M5. It also will not stream radio or AUX - for those,
+use Line In.
 
 ### Diagnostic logging
 
