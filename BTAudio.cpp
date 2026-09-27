@@ -43,6 +43,7 @@
   #endif
   #include "BluetoothA2DPSink.h"
   #include "BluetoothA2DPSource.h"
+  #include "esp_gap_bt_api.h"
   #include <vector>
   #define BT_LIB_PRESENT 1
 #else
@@ -241,6 +242,9 @@ static float    g_TxOutRate    = BT_SOURCE_RATE;
 
 static volatile uint32_t g_LastRxDataMs = 0;    // BT task -> loop()
 static volatile uint32_t g_LastTxPullMs = 0;    // BT task -> loop()
+static volatile uint32_t g_RxPackets    = 0;    // decoded A2DP packets this connection
+static volatile uint32_t g_TxPulls      = 0;    // source callback pulls this connection
+static uint32_t g_TxScanArmMs = 0;              // last inquiry re-arm (BT TX)
 static uint32_t g_PeerPollMs = 0;
 static char     g_PeerName[BT_SOURCE_NAME_LEN + 1] = {0};
 static char     g_Status[64] = {0};
@@ -346,6 +350,35 @@ static void BtRadioOff(void) {
     }
 }
 
+// Device selection callback used while the A2DP source scans for a speaker.
+// Setting this callback replaces the library's internal name list matching, so this
+// function does both jobs: it logs every discoverable device (so the exact name can be
+// copied into Config.h) and decides which one to connect to. Returning true connects
+// immediately, returning false keeps scanning.
+static bool BTAudio_OnDeviceFound(const char* ssid, esp_bd_addr_t address, int rssi) {
+    (void)address;
+    if (!ssid || !ssid[0]) return false;
+
+    Serial.printf("[BT] Found device: \"%s\"  RSSI %d dBm\n", ssid, rssi);
+
+    // Prefix match against the configured names (same rule the library uses)
+    for (int i = 0; i < g_PeerCount; i++) {
+        const size_t len = strlen(g_PeerNames[i]);
+        if (len > 0 && strncmp(ssid, g_PeerNames[i], len) == 0) {
+            Serial.printf("[BT] Matching configured target: \"%s\"\n", ssid);
+            return true;
+        }
+    }
+
+#if BT_TX_ACCEPT_FIRST
+    Serial.printf("[BT] No configured name matched - accepting \"%s\"\n", ssid);
+    return true;
+#else
+    Serial.printf("[BT] \"%s\" is not in BT_SOURCE_PEERS - ignoring\n", ssid);
+    return false;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // A2DP sink: route the decoded PCM into the DSP chain instead of the codec.
 // Overriding audio_data_callback() bypasses the library's output stage entirely,
@@ -378,6 +411,15 @@ static void BTAudio_OnRemoteVolume(int volume) {
     Serial.printf("[BT] Source volume: %d%% (%d/127)\n", (volume * 100) / 127, volume);
 }
 
+// A2DP stream state reported by the stack, independent of audio actually arriving.
+static const char* AudioStateName(esp_a2d_audio_state_t state) {
+    switch (state) {
+        case ESP_A2D_AUDIO_STATE_STARTED: return "STARTED";
+        case ESP_A2D_AUDIO_STATE_SUSPEND: return "SUSPENDED";
+        default:                          return "SUSPENDED";
+    }
+}
+
 // BT task: one decoded A2DP packet -> RX ring (no conversion, no blocking work).
 static void BTAudio_OnSinkPcm(const uint8_t* data, uint32_t len) {
     if (!g_RxStorage || g_Mode != BT_MODE_RX || len == 0) return;
@@ -395,6 +437,7 @@ static void BTAudio_OnSinkPcm(const uint8_t* data, uint32_t len) {
     const size_t   frames = len / (sizeof(int16_t) * ch);
     if (frames == 0) return;
 
+    __atomic_fetch_add(&g_RxPackets, 1, __ATOMIC_RELAXED);
     // One-shot bring-up diagnostics: proves audio is really arriving, and records the
     // format and the heap available at that moment.
     static bool s_FirstPacketLogged = false;
@@ -433,6 +476,7 @@ static int32_t BTAudio_OnSourceData(Frame* frames, int32_t frameCount) {
     if (!frames || frameCount <= 0) return 0;
 
     g_LastTxPullMs = millis();
+    __atomic_fetch_add(&g_TxPulls, 1, __ATOMIC_RELAXED);
 
     if (!g_TxStorage || g_Mode != BT_MODE_TX) {
         memset(frames, 0, (size_t)frameCount * sizeof(Frame));
@@ -515,6 +559,7 @@ bool BTAudio_StartRx(void) {
     g_TxFade = 0.0f;
     g_LastRxDataMs = 0;
     g_PeerName[0] = 0;
+    g_RxPackets = 0;
     g_ResetRequest = true;
 
     g_Mode  = BT_MODE_RX;
@@ -549,6 +594,7 @@ bool BTAudio_StartTx(void) {
         g_Source->set_data_callback_in_frames(BTAudio_OnSourceData);
         g_Source->set_local_name(BT_SINK_NAME);
         g_Source->set_auto_reconnect(true, 3);
+        g_Source->set_ssid_callback(BTAudio_OnDeviceFound);
     }
 
     g_PeerVector.clear();
@@ -558,6 +604,8 @@ bool BTAudio_StartTx(void) {
     g_RxFade = 0.0f;
     g_TxFade = 0.0f;
     g_LastTxPullMs = 0;
+    g_TxPulls = 0;
+    g_TxScanArmMs = millis();
     g_ResetRequest = true;
     strncpy(g_PeerName, g_PeerNames[0], sizeof(g_PeerName) - 1);
     g_PeerName[sizeof(g_PeerName) - 1] = 0;
@@ -679,7 +727,9 @@ void BTAudio_Update(void) {
 
         case BT_MODE_TX: {
             const bool pulling = g_LastTxPullMs && (uint32_t)(now - g_LastTxPullMs) < 3000;
-            const bool alive   = g_Source && g_Source->is_active(6000);
+            // The library's heartbeat timer runs every 10 s, so the liveness timeout must be
+            // longer than that or the state flaps between STREAMING and CONNECTED.
+            const bool alive   = g_Source && g_Source->is_active(12000);
             g_State = (pulling && alive) ? BT_STATE_TX_STREAMING
                     : connected          ? BT_STATE_TX_CONNECTED
                                          : BT_STATE_TX_SEARCHING;
@@ -696,18 +746,63 @@ void BTAudio_Update(void) {
 #if BT_LOG_STATS
     // Periodic link/health line, helpful while bringing a source up and for spotting
     // slow leaks. Set BT_LOG_STATS 0 in Config.h to silence it.
-    static uint32_t s_LastStats = 0;
+    static uint32_t s_LastStats   = 0;
+    static uint32_t s_LastRxTotal = 0;
+    static uint32_t s_LastTxTotal = 0;
+    static uint32_t s_LastSearchLog = 0;
     if (connected && (uint32_t)(now - s_LastStats) > 5000) {
         s_LastStats = now;
-        Serial.printf("[BT] %s: ring %3.0f%%  xrun %lu  DSP %2.0f%%  intern %u  psram %u\n",
-                      (g_Mode == BT_MODE_RX) ? "RX" : "TX",
-                      (double)((g_Mode == BT_MODE_RX) ? g_RxRing.FillPct() : g_TxRing.FillPct()),
-                      (unsigned long)(g_RxRing.xrun + g_TxRing.xrun),
-                      (double)DSP_Engine_GetCPULoad(),
-                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        const uint32_t rxTotal = g_RxPackets;
+        const uint32_t txTotal = g_TxPulls;
+        const uint32_t rxPkts  = rxTotal - s_LastRxTotal;
+        const uint32_t txPkts  = txTotal - s_LastTxTotal;
+        s_LastRxTotal = rxTotal;
+        s_LastTxTotal = txTotal;
+
+        // "pkts 0 NO-AUDIO" together with a2dp STARTED means the source claims to be
+        // streaming but is sending nothing: the misleading "paired but silent" case.
+        if (g_Mode == BT_MODE_RX) {
+            Serial.printf("[BT] RX: ring %3.0f%%  xrun %lu  pkts %lu/5s%s  a2dp %s  DSP %2.0f%%  intern %u  psram %u\n",
+                          (double)g_RxRing.FillPct(),
+                          (unsigned long)(g_RxRing.xrun + g_TxRing.xrun),
+                          (unsigned long)rxPkts,
+                          (rxPkts == 0) ? " NO-AUDIO" : "",
+                          g_Sink ? AudioStateName(g_Sink->get_audio_state()) : "?",
+                          (double)DSP_Engine_GetCPULoad(),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        } else {
+            Serial.printf("[BT] TX: ring %3.0f%%  xrun %lu  pulls %lu/5s%s  DSP %2.0f%%  intern %u  psram %u\n",
+                          (double)g_TxRing.FillPct(),
+                          (unsigned long)(g_RxRing.xrun + g_TxRing.xrun),
+                          (unsigned long)txPkts,
+                          (txPkts == 0) ? " NO-AUDIO" : "",
+                          (double)DSP_Engine_GetCPULoad(),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        }
+    }
+
+    // While BT TX is still searching there is no link yet, so report scan progress
+    // instead of staying silent.
+    if (g_Mode == BT_MODE_TX && !connected && (uint32_t)(now - s_LastSearchLog) > 5000) {
+        s_LastSearchLog = now;
+        Serial.printf("[BT] TX: scanning for a speaker (%d names, discovery %s)...\n",
+                      g_PeerCount,
+                      (g_Source && g_Source->is_discovery_active()) ? "running" : "idle");
     }
 #endif
+
+    // A connection attempt that fails leaves the library's source state machine in
+    // APP_AV_STATE_DISCOVERING, where its own rescan path is skipped, so the search would
+    // stop for good. Re-arm the inquiry ourselves while nothing is connected.
+    if (g_Mode == BT_MODE_TX && !connected && g_Source &&
+        !g_Source->is_discovery_active() && (uint32_t)(now - g_TxScanArmMs) > 12000) {
+        g_TxScanArmMs = now;
+        if (esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0) == ESP_OK) {
+            Serial.println("[BT] TX: re-arming device discovery");
+        }
+    }
 #endif
 }
 
@@ -752,7 +847,10 @@ const char* BTAudio_GetStatusText(void) {
             snprintf(g_Status, sizeof(g_Status), "BT RX: PAIR \"%s\" ON YOUR PHONE", BT_SINK_NAME);
             break;
         case BT_STATE_RX_CONNECTED:
-            snprintf(g_Status, sizeof(g_Status), "BT RX: %s CONNECTED (IDLE)", ShortPeer(g_PeerName, 12));
+            // Distinguish "linked and idle" from "linked but the source sends nothing",
+            // which is the confusing case when a device pairs and stays silent.
+            snprintf(g_Status, sizeof(g_Status), "BT RX: %s %s", ShortPeer(g_PeerName, 12),
+                     (g_RxPackets > 0) ? "CONNECTED (PAUSED)" : "CONNECTED (NO AUDIO)");
             break;
         case BT_STATE_RX_STREAMING:
             snprintf(g_Status, sizeof(g_Status), "BT RX: %s  RING %3.0f%%  XRUN %lu",

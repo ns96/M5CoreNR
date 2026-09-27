@@ -75,6 +75,15 @@
 #define BT_SOURCE_PEERS         "M5CoreNR-BT,M5 Speaker"
 #define BT_SOURCE_MAX_PEERS     4
 #define BT_SOURCE_NAME_LEN      32
+
+// BT TX device selection when no configured name matches during the inquiry scan:
+//   1 = connect to the first audio-capable device found. Convenient for a speaker left in
+//       pairing mode, but it will also latch onto any other audio device in range (for
+//       example a laptop), so list the real name in BT_SOURCE_PEERS when you know it.
+//   0 = only ever connect to a name listed in BT_SOURCE_PEERS and keep scanning otherwise.
+// Matching is a prefix match, so a partial name such as "JBL" is enough.
+// Every discovered device is logged, which is how you find the exact name to put here.
+#define BT_TX_ACCEPT_FIRST      1
 // A2DP source stream rate: the ESP32-A2DP source sends 44.1 kHz stereo SBC.
 #define BT_SOURCE_RATE          44100.0f
 
