@@ -1,0 +1,21 @@
+# Arduino / ESP32 build artifacts
+build/
+*.bin
+*.elf
+*.hex
+*.map
+*.lst
+*.d
+*.o
+*.a
+*.su
+
+# Arduino IDE sketch metadata
+*.ino.cpp
+sketch.json
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*~
