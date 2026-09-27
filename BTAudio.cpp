@@ -368,6 +368,14 @@ static void BTAudio_OnSinkRate(uint16_t rate) {
     }
 }
 
+// Diagnostic: log the volume the connected source is asking the sink to apply
+// (AVRCP absolute volume). Useful when a source "sounds muted after connecting".
+static void BTAudio_OnRemoteVolume(int volume) {
+    if (volume < 0) volume = 0;
+    if (volume > 127) volume = 127;
+    Serial.printf("[BT] Source volume: %d%% (%d/127)\n", (volume * 100) / 127, volume);
+}
+
 // BT task: one decoded A2DP packet -> RX ring (no conversion, no blocking work).
 static void BTAudio_OnSinkPcm(const uint8_t* data, uint32_t len) {
     if (!g_RxStorage || g_Mode != BT_MODE_RX || len == 0) return;
@@ -477,8 +485,16 @@ bool BTAudio_StartRx(void) {
         g_Sink = new NrA2dpSink();
         if (!g_Sink) { g_State = BT_STATE_NO_LIB; return false; }
         g_Sink->set_sample_rate_callback(BTAudio_OnSinkRate);
+        g_Sink->set_on_volumechange(BTAudio_OnRemoteVolume);
         g_Sink->set_auto_reconnect(true, 3);
     }
+
+    // Advertise full-scale AVRCP volume. Without this the sink reports 0, the source moves
+    // its own output to 0 (audible as "connected but silent") and the decoded PCM gets
+    // scaled by a 0 volume factor. Re-asserted on every start so a source that remembers a
+    // muted state is corrected on reconnect.
+    g_Sink->set_volume(BT_RX_SOURCE_VOLUME);
+    Serial.printf("[BT] Advertising source volume %d/127 (full scale)\n", BT_RX_SOURCE_VOLUME);
 
     g_RxRing.Reset();
     g_RxFade = 0.0f;

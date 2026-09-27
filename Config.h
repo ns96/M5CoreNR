@@ -70,6 +70,15 @@
 // A2DP source stream rate: the ESP32-A2DP source sends 44.1 kHz stereo SBC.
 #define BT_SOURCE_RATE          44100.0f
 
+// AVRCP absolute volume (0-127) advertised to a device that connects in BT RX mode.
+// The ESP32-A2DP sink starts at 0, and the INTERIM reply it sends when a source registers
+// for volume notifications then makes phones/PCs set THEIR output volume to 0 (the
+// "paired, connected, but silent until I raise the source volume" symptom); the same 0 also
+// scales the decoded PCM to silence once a volume is applied. Advertising full scale keeps
+// the source at 100 % and leaves loudness to the local headphone volume control. The source
+// slider still works and still attenuates.
+#define BT_RX_SOURCE_VOLUME     127
+
 // Stereo PCM ring buffers (allocated in PSRAM; both sizes must be powers of two)
 #define BT_RX_RING_FRAMES       16384   // ~371 ms @ 44.1 kHz (BT task -> audio task)
 #define BT_TX_RING_FRAMES       16384   // ~341 ms @ 48 kHz   (audio task -> BT task)

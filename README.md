@@ -154,6 +154,18 @@ pairing session from a PC.
 | `BT_RING_TARGET_PCT` / `BT_RING_MIN_PCT` / `BT_RING_MAX_PCT` | Servo set point and fade limits |
 | `BT_SERVO_KP` / `BT_SERVO_MAX_TRIM` | Drift servo gain and authority (±1 %) |
 | `BT_TX_MIRROR_VOLUME` / `BT_VOL_DB_PER_STEP` | Headphone volume mirroring |
+| `BT_RX_SOURCE_VOLUME` | AVRCP volume advertised to a device connecting in BT RX mode (127 = full scale) |
+
+### AVRCP volume ("connected but silent")
+
+The A2DP sink advertises an absolute volume to whatever connects. The ESP32-A2DP default is
+**0**, and the reply the sink sends when a source registers for volume notifications carries
+that value - so phones and PCs obediently set their own output volume to 0, which looks like a
+successful pairing that produces no sound until the source volume is raised. The same 0 also
+scales the decoded PCM to silence once a volume is applied. M5CoreNR advertises full scale
+(`BT_RX_SOURCE_VOLUME 127`) instead and leaves loudness to the local headphone volume, while
+still honouring the source slider when the user moves it. Every volume the source requests is
+logged as `[BT] Source volume: N%`.
 
 ### Known limitations
 
