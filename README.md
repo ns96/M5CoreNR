@@ -6,6 +6,19 @@ M5CoreNR restores and decodes analog cassette tapes in real time with **10.7 ms 
 
 ---
 
+## Disclaimer
+
+> **This project is strictly a proof of concept, and it was written with the help of AI.**
+>
+> - **AI-assisted code.** The firmware, DSP algorithms, and this documentation were largely generated and iterated with an AI coding assistant, then built and tested on real hardware. Treat the code as a starting point to study, not as reviewed, certified, or production-grade software.
+> - **Proof of concept, not a reference implementation.** The decoders here are *approximations* of the original analog compander behaviour. They were tuned by ear and by inspection, **not** by measurement against calibrated test signals, reference levels, or factory-aligned hardware.
+> - **The decoders are not equivalent to the real 1980s silicon.** The **Dolby B**, **Dolby C**, and **DBX Type II** paths do **not** claim to match the decoding accuracy, tracking behaviour, or specification compliance of genuine Dolby or DBX hardware. Time constants, filter slopes, detector behaviour, and level calibration are simplified and will differ audibly from a correctly aligned original unit. Do not expect bit-exact or reference-grade decoding, and do not use this as an authority on how those formats actually behave.
+> - **No measurements, no compliance testing.** There is no audio analyser data, THD+N figure, frequency-response plot, or formal verification behind the numbers quoted below beyond real-time CPU load and buffer/latency bookkeeping observed on the device.
+> - **"Dolby" and "DBX" are trademarked names** of their respective owners. They are used here only descriptively, to indicate which playback format a mode is loosely modelled on. This project is not affiliated with, endorsed by, or licensed by either company.
+> - **Use at your own risk.** No warranty of any kind. Audio artefacts, unexpected behaviour, or hardware quirks are possible; verify anything important against the original hardware before relying on it.
+
+---
+
 ## Key Features & DSP Pipeline
 
 - **3-Band Split Spectral Expander ("DE-HISS")**:
